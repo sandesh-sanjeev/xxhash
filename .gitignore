@@ -1,0 +1,8 @@
+# Generated build artifacts.
+zig-out/
+
+# Cache of compiler data.
+.zig-cache/
+
+# Configurations for local vscode.
+.vscode/
