@@ -115,3 +115,26 @@ test "example 2 with seed" {
     const hash = oneshot(data, 69);
     try testing.expect(hash == 0x4f8fa903);
 }
+
+test "fuzz test conformance" {
+    const Context = struct {
+        fn testOne(self: @This(), data: []const u8) anyerror!void {
+            _ = self;
+
+            // Compute hash from a reference implementation.
+            // TODO: Replace this with "read" reference implementation.
+            // https://github.com/Cyan4973/xxHash.
+            var xxHash = std.hash.XxHash32.init(0);
+            xxHash.update(data);
+            const expected = xxHash.final();
+
+            // Compute hash using our implementation.
+            const actual = oneshot(data, 0);
+
+            // They should be the same because seed is the same.
+            try testing.expectEqual(expected, actual);
+        }
+    };
+
+    try testing.fuzz(Context{}, Context.testOne, .{});
+}
