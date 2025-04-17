@@ -116,7 +116,7 @@ test "fuzz test conformance" {
             _ = self;
 
             // Compute hash from a reference implementation.
-            // TODO: Replace this with "read" reference implementation.
+            // TODO: Replace this with "real" reference implementation.
             // https://github.com/Cyan4973/xxHash.
             var xxHash = std.hash.XxHash32.init(0);
             xxHash.update(data);

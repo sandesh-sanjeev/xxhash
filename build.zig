@@ -93,6 +93,12 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // To get the assembly generated for the executable.
+    const waf = b.addWriteFiles();
+    _ = waf.addCopyFile(exe.getEmittedAsm(), "main.asm");
+    waf.step.dependOn(&exe.step);
+    b.getInstallStep().dependOn(&waf.step);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
