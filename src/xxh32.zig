@@ -20,7 +20,7 @@ const PRIME32_5: u32 = 0x165667B1;
 /// * `seed` - Seed to use when generating hash.
 pub fn oneshot(data: []const u8, seed: u32) u32 {
     // Setup initial state for the digest.
-    var hash: u32 = 0;
+    var acc: u32 = 0;
     var buf = bytes.NumBuf{ .data = data };
 
     // Process bytes in stripes if enough bytes are available.
@@ -36,58 +36,52 @@ pub fn oneshot(data: []const u8, seed: u32) u32 {
         // Each stripe is contiguous memory slice of 16 bytes.
         // And each stripe is made up of 4 lanes each 4 bytes wide.
         while (buf.remaining() >= 16) {
-            // Lane 1
-            acc_1 +%= buf.next(u32) *% PRIME32_2;
-            acc_1 = math.rotl(u32, acc_1, 13) *% PRIME32_1;
-
-            // Lane 2
-            acc_2 +%= buf.next(u32) *% PRIME32_2;
-            acc_2 = math.rotl(u32, acc_2, 13) *% PRIME32_1;
-
-            // Lane 3
-            acc_3 +%= buf.next(u32) *% PRIME32_2;
-            acc_3 = math.rotl(u32, acc_3, 13) *% PRIME32_1;
-
-            // Lane 4
-            acc_4 +%= buf.next(u32) *% PRIME32_2;
-            acc_4 = math.rotl(u32, acc_4, 13) *% PRIME32_1;
+            acc_1 = round(acc_1, buf.next(u32));
+            acc_2 = round(acc_2, buf.next(u32));
+            acc_3 = round(acc_3, buf.next(u32));
+            acc_4 = round(acc_4, buf.next(u32));
         }
 
         // Step 3: Accumulator convergence.
-        hash +%= math.rotl(u32, acc_1, 1);
-        hash +%= math.rotl(u32, acc_2, 7);
-        hash +%= math.rotl(u32, acc_3, 12);
-        hash +%= math.rotl(u32, acc_4, 18);
+        acc +%= math.rotl(u32, acc_1, 1);
+        acc +%= math.rotl(u32, acc_2, 7);
+        acc +%= math.rotl(u32, acc_3, 12);
+        acc +%= math.rotl(u32, acc_4, 18);
     } else {
         // Don't have enough bytes for a complete stripe.
-        hash +%= seed + PRIME32_5;
+        acc +%= seed + PRIME32_5;
     }
 
     // Step 4: Add input length.
     // If size larger than 32 bits, preserve the lower 32 bits.
-    hash +%= @truncate(data.len);
+    acc +%= @truncate(data.len);
 
     // Step 5: Consume remaining input.
     while (buf.remaining() >= 4) {
-        hash +%= buf.next(u32) *% PRIME32_3;
-        hash = math.rotl(u32, hash, 17) *% PRIME32_4;
+        acc +%= buf.next(u32) *% PRIME32_3;
+        acc = math.rotl(u32, acc, 17) *% PRIME32_4;
     }
 
     while (buf.remaining() >= 1) {
         const lane = @as(u32, buf.next(u8));
-        hash +%= (lane *% PRIME32_5);
-        hash = math.rotl(u32, hash, 11) *% PRIME32_1;
+        acc +%= (lane *% PRIME32_5);
+        acc = math.rotl(u32, acc, 11) *% PRIME32_1;
     }
 
     // Step 6: Final mix (avalanche).
-    hash ^= hash >> 15;
-    hash *%= PRIME32_2;
-    hash ^= hash >> 13;
-    hash *%= PRIME32_3;
-    hash ^= hash >> 16;
+    acc ^= acc >> 15;
+    acc *%= PRIME32_2;
+    acc ^= acc >> 13;
+    acc *%= PRIME32_3;
+    acc ^= acc >> 16;
 
     // Step 7: Return the digest.
-    return hash;
+    return acc;
+}
+
+fn round(acc: u32, lane: u32) u32 {
+    const acc_new = acc +% (lane *% PRIME32_2);
+    return math.rotl(u32, acc_new, 13) *% PRIME32_1;
 }
 
 // https://asecuritysite.com/encryption/xxhash
