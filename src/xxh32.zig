@@ -1,8 +1,10 @@
 //! Implementation of 32 bit xxhash [spec](https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md#xxh32-algorithm-description).
 
 const std = @import("std");
+const bytes = @import("bytes.zig");
+
 const testing = std.testing;
-const Endian = std.builtin.Endian;
+const math = std.math;
 
 const PRIME32_1: u32 = 0x9E3779B1;
 const PRIME32_2: u32 = 0x85EBCA77;
@@ -10,7 +12,7 @@ const PRIME32_3: u32 = 0xC2B2AE3D;
 const PRIME32_4: u32 = 0x27D4EB2F;
 const PRIME32_5: u32 = 0x165667B1;
 
-/// Generate 32 bit hash of a message.
+/// Generate 32 bit hash of an entire message.
 ///
 /// # Arguments
 ///
@@ -19,8 +21,7 @@ const PRIME32_5: u32 = 0x165667B1;
 pub fn oneshot(data: []const u8, seed: u32) u32 {
     // Setup initial state for the digest.
     var hash: u32 = 0;
-    var offset: usize = 0;
-    var remaining = data.len;
+    var buf = bytes.NumBuf{ .data = data };
 
     // Process bytes in stripes if enough bytes are available.
     if (data.len >= 16) {
@@ -34,33 +35,29 @@ pub fn oneshot(data: []const u8, seed: u32) u32 {
         // Step 2: Process stripes.
         // Each stripe is contiguous memory slice of 16 bytes.
         // And each stripe is made up of 4 lanes each 4 bytes wide.
-        while (remaining >= 16) : (remaining -= 16) {
+        while (buf.remaining() >= 16) {
             // Lane 1
-            acc_1 +%= read_next(data, offset) *% PRIME32_2;
-            acc_1 = rotate_left(acc_1, 13) *% PRIME32_1;
-            offset += 4;
+            acc_1 +%= buf.next(u32) *% PRIME32_2;
+            acc_1 = math.rotl(u32, acc_1, 13) *% PRIME32_1;
 
             // Lane 2
-            acc_2 +%= read_next(data, offset) *% PRIME32_2;
-            acc_2 = rotate_left(acc_2, 13) *% PRIME32_1;
-            offset += 4;
+            acc_2 +%= buf.next(u32) *% PRIME32_2;
+            acc_2 = math.rotl(u32, acc_2, 13) *% PRIME32_1;
 
             // Lane 3
-            acc_3 +%= read_next(data, offset) *% PRIME32_2;
-            acc_3 = rotate_left(acc_3, 13) *% PRIME32_1;
-            offset += 4;
+            acc_3 +%= buf.next(u32) *% PRIME32_2;
+            acc_3 = math.rotl(u32, acc_3, 13) *% PRIME32_1;
 
             // Lane 4
-            acc_4 +%= read_next(data, offset) *% PRIME32_2;
-            acc_4 = rotate_left(acc_4, 13) *% PRIME32_1;
-            offset += 4;
+            acc_4 +%= buf.next(u32) *% PRIME32_2;
+            acc_4 = math.rotl(u32, acc_4, 13) *% PRIME32_1;
         }
 
         // Step 3: Accumulator convergence.
-        hash +%= rotate_left(acc_1, 1);
-        hash +%= rotate_left(acc_2, 7);
-        hash +%= rotate_left(acc_3, 12);
-        hash +%= rotate_left(acc_4, 18);
+        hash +%= math.rotl(u32, acc_1, 1);
+        hash +%= math.rotl(u32, acc_2, 7);
+        hash +%= math.rotl(u32, acc_3, 12);
+        hash +%= math.rotl(u32, acc_4, 18);
     } else {
         // Don't have enough bytes for a complete stripe.
         hash +%= seed + PRIME32_5;
@@ -71,17 +68,15 @@ pub fn oneshot(data: []const u8, seed: u32) u32 {
     hash +%= @truncate(data.len);
 
     // Step 5: Consume remaining input.
-    while (remaining >= 4) : (remaining -= 4) {
-        hash +%= read_next(data, offset) *% PRIME32_3;
-        hash = rotate_left(hash, 17) *% PRIME32_4;
-        offset += 4;
+    while (buf.remaining() >= 4) {
+        hash +%= buf.next(u32) *% PRIME32_3;
+        hash = math.rotl(u32, hash, 17) *% PRIME32_4;
     }
 
-    while (remaining >= 1) : (remaining -= 1) {
-        const lane = @as(u32, data[offset]);
+    while (buf.remaining() >= 1) {
+        const lane = @as(u32, buf.next(u8));
         hash +%= (lane *% PRIME32_5);
-        hash = rotate_left(hash, 11) *% PRIME32_1;
-        offset += 1;
+        hash = math.rotl(u32, hash, 11) *% PRIME32_1;
     }
 
     // Step 6: Final mix (avalanche).
@@ -93,20 +88,6 @@ pub fn oneshot(data: []const u8, seed: u32) u32 {
 
     // Step 7: Return the digest.
     return hash;
-}
-
-fn read_next(data: []const u8, offset: usize) u32 {
-    const u32_bytes = [_]u8{
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    };
-    return std.mem.readInt(u32, &u32_bytes, Endian.little);
-}
-
-fn rotate_left(number: u32, bits: u5) u32 {
-    return (number << bits) | (number >> (31 - bits + 1));
 }
 
 // https://asecuritysite.com/encryption/xxhash

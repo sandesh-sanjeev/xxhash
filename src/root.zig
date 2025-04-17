@@ -9,18 +9,3 @@ pub const xxh32 = @import("xxh32.zig");
 test {
     std.testing.refAllDeclsRecursive(@This());
 }
-
-// Fuzz tests to test equivalence with reference C implementation.
-// zig build test --fuzz
-// FIXME: This does not work as expected.
-
-test "fuzz 32 bit oneshot hash" {
-    const Context = struct {
-        fn testOne(context: @This(), data: []const u8) !void {
-            _ = context;
-            _ = xxh32.oneshot(data, 0);
-        }
-    };
-
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
-}
