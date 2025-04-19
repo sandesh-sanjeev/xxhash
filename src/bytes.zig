@@ -28,6 +28,16 @@ pub const NumBuf = struct {
         self.offset += size;
 
         // Parse the provided bytes into the target number type.
+        // xxhash spec always uses little endian, probably because that is the native byte order on most platforms.
         return std.mem.readInt(T, bytes, .little);
+    }
+
+    pub fn next_stripe(self: *NumBuf, comptime T: type) [4]T {
+        return [_]T{
+            self.next(T),
+            self.next(T),
+            self.next(T),
+            self.next(T),
+        };
     }
 };
