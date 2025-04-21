@@ -2,22 +2,22 @@
 
 const std = @import("std");
 
-/// A buffer that one can use to read a blob of bytes as a sequence of numbers.
-pub const NumBuf = struct {
+/// A buffer that one can use to read a blob of bytes as a sequence of integers.
+pub const IntBuf = struct {
     data: []const u8,
     offset: usize = 0,
 
     /// Number of bytes remaining in the buffer.
-    pub fn remaining(self: *NumBuf) usize {
+    pub fn remaining(self: *@This()) usize {
         return self.data.len - self.offset;
     }
 
-    /// Fetch the next number.
+    /// Fetch the next number in buffer.
     ///
     /// # Arguments
     ///
-    /// * `T` - Number of number to fetch.
-    pub fn next(self: *NumBuf, comptime T: type) T {
+    /// * `T` - Type of integer to read next.
+    pub fn next(self: *@This(), comptime T: type) T {
         // Fetch the exact size of the number type.
         const size = @sizeOf(T);
 
@@ -28,11 +28,15 @@ pub const NumBuf = struct {
         self.offset += size;
 
         // Parse the provided bytes into the target number type.
-        // xxhash spec always uses little endian, probably because that is the native byte order on most platforms.
         return std.mem.readInt(T, bytes, .little);
     }
 
-    pub fn next_stripe(self: *NumBuf, comptime T: type) [4]T {
+    /// Fetch the next stripe in buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `T` - Type of integer that makes up a stripe.
+    pub fn next_stripe(self: *@This(), comptime T: type) [4]T {
         return [_]T{
             self.next(T),
             self.next(T),

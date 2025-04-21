@@ -15,6 +15,10 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Add benchmark module.
+    const zbench_opts = .{ .target = target, .optimize = optimize };
+    const zbench = b.dependency("zbench", zbench_opts).module("zbench");
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -64,6 +68,9 @@ pub fn build(b: *std.Build) void {
         .name = "xxhash",
         .root_module = exe_mod,
     });
+
+    // Add module to executable.
+    exe.root_module.addImport("zbench", zbench);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

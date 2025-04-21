@@ -4,9 +4,7 @@ const std = @import("std");
 const bytes = @import("bytes.zig");
 
 const testing = std.testing;
-const math = std.math;
-
-const Vector = @Vector(4, u64);
+const rotl = std.math.rotl;
 
 const PRIME_1: u64 = 0x9E3779B185EBCA87;
 const PRIME_2: u64 = 0xC2B2AE3D27D4EB4F;
@@ -14,27 +12,23 @@ const PRIME_3: u64 = 0x165667B19E3779F9;
 const PRIME_4: u64 = 0x85EBCA77C2B2AE63;
 const PRIME_5: u64 = 0x27D4EB2F165667C5;
 
-const V_PRIME_1: Vector = @splat(PRIME_1);
-const V_PRIME_2: Vector = @splat(PRIME_2);
-
+/// 64 bit variant of xxHash.
 pub const Xxh64 = struct {
-    pub fn oneshotS(data: []const u8, seed: u64) u64 {
-        return oneshot(data, seed, ScalarStripe);
-    }
-
-    pub fn oneshotV(data: []const u8, seed: u64) u64 {
-        return oneshot(data, seed, VectorStripe);
-    }
-
-    fn oneshot(data: []const u8, seed: u64, comptime T: type) u64 {
+    /// Generate hash for an entire message.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Message to hash.
+    /// * `seed` - Initial seed for the hash.
+    pub fn oneshot(data: []const u8, seed: u64) u64 {
         // Setup initial state for the digest.
         var digest: Digest = undefined;
-        var buf = bytes.NumBuf{ .data = data };
+        var buf = bytes.IntBuf{ .data = data };
 
         // Initialize digest.
         if (data.len >= 32) {
             // Step 1: Initialize accumulators.
-            var stripe = T.initialize(seed);
+            var stripe = Stripe.initialize(seed);
 
             // Step 2: Process stripes.
             while (buf.remaining() >= 32) {
@@ -53,15 +47,15 @@ pub const Xxh64 = struct {
 
         // Step 5: Consume remaining input.
         while (buf.remaining() >= 8) {
-            digest.process_u64(buf.next(u64));
+            digest.process64(buf.next(u64));
         }
 
         if (buf.remaining() >= 4) {
-            digest.process_u32(buf.next(u32));
+            digest.process32(buf.next(u32));
         }
 
         while (buf.remaining() >= 1) {
-            digest.process_u8(buf.next(u8));
+            digest.process8(buf.next(u8));
         }
 
         // Step 6: Final mix (avalanche).
@@ -75,7 +69,7 @@ const Digest = struct {
     /// Step 1 for input length < 32 bytes.
     fn initialize(seed: u64) @This() {
         return Digest{
-            .accumulator = seed + PRIME_5,
+            .accumulator = seed +% PRIME_5,
         };
     }
 
@@ -87,20 +81,20 @@ const Digest = struct {
 
     // Step 5: Add remaining.
 
-    fn process_u8(self: *@This(), data: u8) void {
+    fn process8(self: *@This(), data: u8) void {
         self.accumulator ^= (@as(u64, data) *% PRIME_5);
-        self.accumulator = math.rotl(u64, self.accumulator, 11) *% PRIME_1;
+        self.accumulator = rotl(u64, self.accumulator, 11) *% PRIME_1;
     }
 
-    fn process_u32(self: *@This(), data: u32) void {
+    fn process32(self: *@This(), data: u32) void {
         self.accumulator ^= (@as(u64, data) *% PRIME_1);
-        self.accumulator = math.rotl(u64, self.accumulator, 23) *% PRIME_2;
+        self.accumulator = rotl(u64, self.accumulator, 23) *% PRIME_2;
         self.accumulator +%= PRIME_3;
     }
 
-    fn process_u64(self: *@This(), data: u64) void {
+    fn process64(self: *@This(), data: u64) void {
         self.accumulator ^= round(0, data);
-        self.accumulator = math.rotl(u64, self.accumulator, 27) *% PRIME_1;
+        self.accumulator = rotl(u64, self.accumulator, 27) *% PRIME_1;
         self.accumulator +%= PRIME_4;
     }
 
@@ -116,12 +110,12 @@ const Digest = struct {
         return self.accumulator;
     }
 
-    fn round(acc: u64, lane: u64) u64 {
-        return math.rotl(u64, acc +% (lane *% PRIME_2), 31) *% PRIME_1;
+    fn round(accumulator: u64, lane: u64) u64 {
+        return rotl(u64, accumulator +% (lane *% PRIME_2), 31) *% PRIME_1;
     }
 };
 
-const ScalarStripe = struct {
+const Stripe = struct {
     accumulator_1: u64,
     accumulator_2: u64,
     accumulator_3: u64,
@@ -129,7 +123,7 @@ const ScalarStripe = struct {
 
     /// Step 1: Initialize internal accumulators.
     fn initialize(seed: u64) @This() {
-        return ScalarStripe{
+        return Stripe{
             .accumulator_1 = seed +% PRIME_1 +% PRIME_2,
             .accumulator_2 = seed +% PRIME_2,
             .accumulator_3 = seed,
@@ -149,10 +143,10 @@ const ScalarStripe = struct {
     fn converge(self: *@This()) Digest {
         var accumulator: u64 = 0;
 
-        accumulator +%= math.rotl(u64, self.accumulator_1, 1);
-        accumulator +%= math.rotl(u64, self.accumulator_2, 7);
-        accumulator +%= math.rotl(u64, self.accumulator_3, 12);
-        accumulator +%= math.rotl(u64, self.accumulator_4, 18);
+        accumulator +%= rotl(u64, self.accumulator_1, 1);
+        accumulator +%= rotl(u64, self.accumulator_2, 7);
+        accumulator +%= rotl(u64, self.accumulator_3, 12);
+        accumulator +%= rotl(u64, self.accumulator_4, 18);
 
         accumulator = mergeAccumulator(accumulator, self.accumulator_1);
         accumulator = mergeAccumulator(accumulator, self.accumulator_2);
@@ -164,63 +158,12 @@ const ScalarStripe = struct {
         };
     }
 
-    fn mergeAccumulator(acc: u64, lane: u64) u64 {
-        return ((acc ^ round(0, lane)) *% PRIME_1) +% PRIME_4;
+    fn mergeAccumulator(accumulator: u64, lane: u64) u64 {
+        return ((accumulator ^ round(0, lane)) *% PRIME_1) +% PRIME_4;
     }
 
-    fn round(acc: u64, lane: u64) u64 {
-        return math.rotl(u64, acc +% (lane *% PRIME_2), 31) *% PRIME_1;
-    }
-};
-
-const VectorStripe = struct {
-    accumulators: Vector,
-
-    /// Step 1: Initialize internal accumulators.
-    fn initialize(seed: u64) @This() {
-        // Cannot use same operation across different lanes during initialization.
-        // So, just initialize with as a scalar stripe.
-        const stripe = ScalarStripe.initialize(seed);
-
-        return VectorStripe{
-            .accumulators = .{
-                stripe.accumulator_1,
-                stripe.accumulator_2,
-                stripe.accumulator_3,
-                stripe.accumulator_4,
-            },
-        };
-    }
-
-    /// Step 2: Process stripes.
-    fn process(self: *@This(), stripe: [4]u64) void {
-        // Load next stripe into vector (registers?).
-        const stripe_vector: Vector = .{
-            stripe[0],
-            stripe[1],
-            stripe[2],
-            stripe[3],
-        };
-
-        // Simd vectorized version of round function.
-        // This is the only set of operations that can be applied across all the different lanes.
-        // But its worth doing it because it will be repeated repeatedly, especially for large inputs.
-        self.accumulators +%= stripe_vector *% V_PRIME_2;
-        self.accumulators = math.rotl(Vector, self.accumulators, 31) *% V_PRIME_1;
-    }
-
-    /// Step 3: Accumulator convergence.
-    fn converge(self: *@This()) Digest {
-        // There is no opportunity for further simd optimizations.
-        // So, just use the scalar stripe to complete convergence.
-        var stripe = ScalarStripe{
-            .accumulator_1 = self.accumulators[0],
-            .accumulator_2 = self.accumulators[1],
-            .accumulator_3 = self.accumulators[2],
-            .accumulator_4 = self.accumulators[3],
-        };
-
-        return stripe.converge();
+    fn round(accumulator: u64, lane: u64) u64 {
+        return rotl(u64, accumulator +% (lane *% PRIME_2), 31) *% PRIME_1;
     }
 };
 
@@ -228,47 +171,24 @@ const VectorStripe = struct {
 
 test "example 1" {
     const data = "Nobody inspects the spammish repetition";
-    const hash = Xxh64.oneshotV(data, 0);
+    const hash = Xxh64.oneshot(data, 0);
     try testing.expect(hash == 0xfbcea83c8a378bf1);
 }
 
 test "example 1 with seed" {
     const data = "Nobody inspects the spammish repetition";
-    const hash = Xxh64.oneshotV(data, 69);
+    const hash = Xxh64.oneshot(data, 69);
     try testing.expect(hash == 0xb7b1577fc25f21e6);
 }
 
 test "example 2" {
     const data = "The quick brown fox jumps over the lazy dog";
-    const hash = Xxh64.oneshotV(data, 0);
+    const hash = Xxh64.oneshot(data, 0);
     try testing.expect(hash == 0x0b242d361fda71bc);
 }
 
 test "example 2 with seed" {
     const data = "The quick brown fox jumps over the lazy dog";
-    const hash = Xxh64.oneshotV(data, 69);
+    const hash = Xxh64.oneshot(data, 69);
     try testing.expect(hash == 0x1673b09e13f8fff8);
-}
-
-test "fuzz test conformance" {
-    const Context = struct {
-        fn testOne(self: @This(), data: []const u8) anyerror!void {
-            _ = self;
-
-            // Compute hash from a reference implementation.
-            // TODO: Replace this with "real" reference implementation.
-            // https://github.com/Cyan4973/xxHash.
-            var xxHash = std.hash.XxHash64.init(0);
-            xxHash.update(data);
-            const expected = xxHash.final();
-
-            // Compute hash using our implementation.
-            const actual = Xxh64.oneshotV(data, 0);
-
-            // They should be the same because seed is the same.
-            try testing.expectEqual(expected, actual);
-        }
-    };
-
-    try testing.fuzz(Context{}, Context.testOne, .{});
 }
